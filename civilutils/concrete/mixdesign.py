@@ -13,6 +13,13 @@ class ConcreteGrade(Enum):
     M50 = "M50"
     M55 = "M55"
 
+class CementGrade(Enum):
+    OPC_33 = "OPC 33"
+    OPC_43 = "OPC 43"
+    OPC_53 = "OPC 53"
+    PPC = "PPC"
+    PSC = "PSC"
+
 class MaximumNominalSize(Enum):
     SIZE_10 = 10
     SIZE_20 = 20
@@ -31,6 +38,28 @@ class FineAggregateZone(Enum):
     ZONE_IV = "Zone IV"
 
 class ExposureCondition(Enum):
+    """
+    Environmental exposure categories based on IS456 (Table 3).
+
+    These categories are used to select design limits (for example maximum
+    water/cement ratio, minimum cement content and cover) according to the
+    service environment the concrete will face.
+
+    Members:
+    - MILD: Concrete surfaces protected against weather or aggressive
+      conditions (e.g., sheltered or protected locations).
+    - MODERATE: Exposed to condensation, rain or continuous wetting (including
+      contact with non-aggressive soil/ground water); sheltered from severe
+      weather.
+    - SEVERE: Exposed to severe rain, alternate wetting and drying, occasional
+      freezing when wet, immersion in seawater or coastal environment, or
+      saturated salt air.
+    - VERY_SEVERE: Exposed to sea water spray, corrosive fumes, severe freezing,
+      or concrete in contact with or buried under aggressive subsoil/ground
+      water.
+    - EXTREME: Members in tidal zones or in direct contact with liquid or solid
+      aggressive chemicals.
+    """
     MILD = "Mild"
     MODERATE = "Moderate"
     SEVERE = "Severe"
@@ -58,31 +87,38 @@ class SpecificGravity:
         self.value = value
 
 class ISMIXDesign:
-    def __init__(self, concrete_grade: ConcreteGrade, 
+    def __init__(self, concrete_grade: ConcreteGrade,
                  maximum_nominal_size: MaximumNominalSize,
                  mineral_admixture: MineralAdmixture,
                  exposure_condition: ExposureCondition,
                  specific_gravities: list[SpecificGravity],
+                 cement_grade: CementGrade | None = None,
                  minimum_cement_content: float | None = None,
                  maximum_cement_content: float | None = None,
                  method_of_placing: str | bool | None = None,
+                 chemical_admixture: ChemicalAdmixture | None = None,
                  coarse_aggregate_type: CoarseAggregateType | None = None,
                  coarse_aggregate_surface_moisture: str | bool | None = None,
                  coarse_aggregate_surface_moisture_value: float | None = None,
                  fine_aggregate_zone: FineAggregateZone | None = None,
                  fine_aggregate_surface_moisture: str | bool | None = None,
                  fine_aggregate_surface_moisture_value: float | None = None,
-                 transportation_time: float | None = None):
-        self.name = "ISMIX Design"
-        self.version = "1.0"
+                 transportation_time: float | None = None,
+                 slump_mm: float | None = 50.0,
+                 slump_adjustment_pct_per_25mm: float = 0.0):
         self.description = "A design methodology for integrated structural and architectural design."
         self.concrete_grade = concrete_grade
         self.maximum_nominal_size = maximum_nominal_size
         self.mineral_admixture = mineral_admixture
         self.exposure_condition = exposure_condition
+        # slump (mm) used to adjust water content; reference table is for 50 mm
+        self.slump_mm = float(slump_mm) if slump_mm is not None else None
+        # fraction change per 25 mm (e.g. 0.03 == 3% change per 25 mm)
+        self.slump_adjustment_pct_per_25mm = float(slump_adjustment_pct_per_25mm)
         self.minimum_cement_content = minimum_cement_content
         self.maximum_cement_content = maximum_cement_content
-        
+        self.cement_grade = cement_grade
+        self.chemical_admixture = chemical_admixture
 
         mandatory_items = {Materials.CEMENT, Materials.COARSE_AGGREGATE, Materials.WATER, Materials.FINE_AGGREGATE}
         if not mandatory_items.issubset({sg.material for sg in specific_gravities}):
@@ -130,6 +166,78 @@ class ISMIXDesign:
         if v in ("no", "n", "false", "0"):
             return False
         raise ValueError("expecting boolean or one of: 'yes','no','y','n'")
+
+    def _calculate_water_cement_ratio_by_is456(self, reinforced: bool = True) -> float:
+        """
+        Determine maximum water/cement ratio from IS456 Table 5 for
+        normal-weight aggregates of 20 mm nominal maximum size.
+
+        Returns and sets self.maximum_water_cement_ratio.
+
+        Table values (maximum free water-cement ratio):
+        - Plain concrete:    Mild 0.60, Moderate 0.60, Severe 0.50, Very severe 0.45, Extreme 0.40
+        - Reinforced concrete:Mild 0.55, Moderate 0.50, Severe 0.45, Very severe 0.45, Extreme 0.40
+        """
+        if self.exposure_condition is None:
+            raise ValueError("exposure_condition must be set to determine water/cement ratio")
+
+        plain_map = {
+            ExposureCondition.MILD: 0.60,
+            ExposureCondition.MODERATE: 0.60,
+            ExposureCondition.SEVERE: 0.50,
+            ExposureCondition.VERY_SEVERE: 0.45,
+            ExposureCondition.EXTREME: 0.40,
+        }
+        reinforced_map = {
+            ExposureCondition.MILD: 0.55,
+            ExposureCondition.MODERATE: 0.50,
+            ExposureCondition.SEVERE: 0.45,
+            ExposureCondition.VERY_SEVERE: 0.45,
+            ExposureCondition.EXTREME: 0.40,
+        }
+        mapping = reinforced_map if reinforced else plain_map
+        wcr = mapping[self.exposure_condition]
+        if self.mineral_admixture != MineralAdmixture.NO_ADMIXTURE:
+            wcr -= 0.05
+        self.maximum_water_cement_ratio = float(wcr)
+        return self.maximum_water_cement_ratio
+
+    def _calculate_water_content(self):
+        """
+        Determine reference water content (kg/m^3) based on nominal maximum
+        aggregate size (IS table).
+        10 mm -> 208, 20 mm -> 186, 40 mm -> 165
+        Stores and returns self.maximum_water_content.
+
+        Reference table values correspond to 50 mm slump. If self.slump_mm is
+        provided the water content is adjusted by slump_adjustment_pct_per_25mm
+        for every 25 mm difference from 50 mm.
+
+        If superplasticizer is used, the water content is reduced by 20%.
+        """
+        if self.maximum_nominal_size is None:
+            raise ValueError("maximum_nominal_size must be set to determine water content")
+
+        mapping = {
+            MaximumNominalSize.SIZE_10: 208.0,
+            MaximumNominalSize.SIZE_20: 186.0,
+            MaximumNominalSize.SIZE_40: 165.0,
+        }
+
+        
+        base_water = float(mapping[self.maximum_nominal_size])
+        if self.slump_mm is not None:
+            steps = (self.slump_mm - 50.0) / 25.0  # positive if slump > 50, negative if < 50
+            adjusted_water = base_water * (1.0 + steps * self.slump_adjustment_pct_per_25mm)
+        else:
+            adjusted_water = base_water
+
+        if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
+            adjusted_water *= 0.8
+
+        self.maximum_water_content = adjusted_water
+        return adjusted_water
+
     
     def _calculate_target_mean_compressive_strength(self) -> float:
         """
@@ -156,24 +264,26 @@ class ISMIXDesign:
             ConcreteGrade.M55: 5.0,
         }
 
-        if self.concrete_grade not in std_dev_map:
-            raise ValueError(f"Standard deviation not defined for grade {self.concrete_grade}")
-
         s = std_dev_map[self.concrete_grade]
         try:
             fck = int(str(self.concrete_grade.value).lstrip("M").strip())
         except Exception:
-            # fallback to enum name
             fck = int(self.concrete_grade.name.lstrip("M"))
 
         target_mean = fck + 1.65 * s
         self.characteristic_strength = fck
         self.standard_deviation = s
         self.target_mean_compressive_strength = target_mean
-
         return target_mean
 
     def calculate(self):
         target_mean_strength = self._calculate_target_mean_compressive_strength()
+        water_cement_ratio = self._calculate_water_cement_ratio_by_is456()
+        water_content = self._calculate_water_content()
 
+        return {
+            "target_mean_strength": target_mean_strength,
+            "water_cement_ratio": water_cement_ratio,
+            "water_content": water_content,
+        }
 
