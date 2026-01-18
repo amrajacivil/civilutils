@@ -1,12 +1,17 @@
 """Concrete Mix Design Package"""
 from enum import Enum
 
-class TargetGrade(Enum):
-    GRADE_20 = 20
-    GRADE_25 = 25
-    GRADE_30 = 30
-    GRADE_35 = 35
-    GRADE_40 = 40
+class ConcreteGrade(Enum):
+    M10 = "M10"
+    M15 = "M15"
+    M20 = "M20"
+    M25 = "M25"
+    M30 = "M30"
+    M35 = "M35"
+    M40 = "M40"
+    M45 = "M45"
+    M50 = "M50"
+    M55 = "M55"
 
 class MaximumNominalSize(Enum):
     SIZE_10 = 10
@@ -45,7 +50,7 @@ class ChemicalAdmixture(Enum):
 
 class MineralAdmixture(Enum):
     FLY_ASH = "Fly Ash"
-    None = "None"
+    NO_ADMIXTURE = "No Admixture"
 
 class SpecificGravity:
     def __init__(self, material: Materials, value: float):
@@ -53,7 +58,7 @@ class SpecificGravity:
         self.value = value
 
 class ISMIXDesign:
-    def __init__(self, target_grade: TargetGrade, 
+    def __init__(self, concrete_grade: ConcreteGrade, 
                  maximum_nominal_size: MaximumNominalSize,
                  mineral_admixture: MineralAdmixture,
                  exposure_condition: ExposureCondition,
@@ -71,7 +76,7 @@ class ISMIXDesign:
         self.name = "ISMIX Design"
         self.version = "1.0"
         self.description = "A design methodology for integrated structural and architectural design."
-        self.target_grade = target_grade
+        self.concrete_grade = concrete_grade
         self.maximum_nominal_size = maximum_nominal_size
         self.mineral_admixture = mineral_admixture
         self.exposure_condition = exposure_condition
@@ -125,5 +130,50 @@ class ISMIXDesign:
         if v in ("no", "n", "false", "0"):
             return False
         raise ValueError("expecting boolean or one of: 'yes','no','y','n'")
+    
+    def _calculate_target_mean_compressive_strength(self) -> float:
+        """
+        Compute target mean compressive strength for the selected concrete grade.
+
+        Uses the standard deviations from the provided table:
+        - M10, M15 : 3.5 N/mm^2
+        - M20, M25 : 4.0 N/mm^2
+        - M30, M35, M40, M45, M50, M55 : 5.0 N/mm^2
+
+        Formula used: target_mean = f_ck + 1.65 * standard_deviation
+        (1.65 corresponds to approximately 95% probability / 5% risk)
+        """
+        std_dev_map = {
+            ConcreteGrade.M10: 3.5,
+            ConcreteGrade.M15: 3.5,
+            ConcreteGrade.M20: 4.0,
+            ConcreteGrade.M25: 4.0,
+            ConcreteGrade.M30: 5.0,
+            ConcreteGrade.M35: 5.0,
+            ConcreteGrade.M40: 5.0,
+            ConcreteGrade.M45: 5.0,
+            ConcreteGrade.M50: 5.0,
+            ConcreteGrade.M55: 5.0,
+        }
+
+        if self.concrete_grade not in std_dev_map:
+            raise ValueError(f"Standard deviation not defined for grade {self.concrete_grade}")
+
+        s = std_dev_map[self.concrete_grade]
+        try:
+            fck = int(str(self.concrete_grade.value).lstrip("M").strip())
+        except Exception:
+            # fallback to enum name
+            fck = int(self.concrete_grade.name.lstrip("M"))
+
+        target_mean = fck + 1.65 * s
+        self.characteristic_strength = fck
+        self.standard_deviation = s
+        self.target_mean_compressive_strength = target_mean
+
+        return target_mean
+
+    def calculate(self):
+        target_mean_strength = self._calculate_target_mean_compressive_strength()
 
 
