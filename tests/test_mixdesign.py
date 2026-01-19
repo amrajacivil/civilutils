@@ -122,7 +122,7 @@ class TestCalculateTargetMeanCompressiveStrength(unittest.TestCase):
             exposure_condition=ExposureCondition.MILD,
             specific_gravities=specific_gravities,
             slump_mm=75.0,
-            slump_adjustment_pct_per_25mm=0.03,
+            
         )
         # base 186 -> one step up (25 mm) -> 186 * 1.03 = 191.58
         self.assertAlmostEqual(design._calculate_water_content(), 191.58, places=6)
@@ -135,7 +135,6 @@ class TestCalculateTargetMeanCompressiveStrength(unittest.TestCase):
             exposure_condition=ExposureCondition.MILD,
             specific_gravities=specific_gravities,
             slump_mm=25.0,
-            slump_adjustment_pct_per_25mm=0.03,
         )
         # base 186 -> one step down -> 186 * 0.97 = 180.42
         self.assertAlmostEqual(design._calculate_water_content(), 180.42, places=6)
@@ -163,6 +162,49 @@ class TestCalculateTargetMeanCompressiveStrength(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             design._calculate_water_content()
+
+    def test_get_specific_gravity_missing_raises(self):
+        """Requesting SG for a material not provided should raise."""
+        specific_gravities = _make_basic_specific_gravities()
+        design = ISMIXDesign(
+            concrete_grade=ConcreteGrade.M20,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+            mineral_admixture=MineralAdmixture.NO_ADMIXTURE,
+            exposure_condition=ExposureCondition.MILD,
+            specific_gravities=specific_gravities,
+        )
+        with self.assertRaises(ValueError):
+            design.get_specific_gravity(Materials.ADMIXTURE)
+
+    def test_accepts_dict_specific_gravities(self):
+        """ISMIXDesign should accept a dict of SpecificGravity keyed by Materials."""
+        sg_dict = {
+            Materials.CEMENT: SpecificGravity(Materials.CEMENT, 3.15),
+            Materials.FINE_AGGREGATE: SpecificGravity(Materials.FINE_AGGREGATE, 2.65),
+            Materials.COARSE_AGGREGATE: SpecificGravity(Materials.COARSE_AGGREGATE, 2.70),
+            Materials.WATER: SpecificGravity(Materials.WATER, 1.00),
+        }
+        design = ISMIXDesign(
+            concrete_grade=ConcreteGrade.M20,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+            mineral_admixture=MineralAdmixture.NO_ADMIXTURE,
+            exposure_condition=ExposureCondition.MILD,
+            specific_gravities=sg_dict,
+        )
+        self.assertAlmostEqual(design.get_specific_gravity(Materials.CEMENT), 3.15, places=6)
+
+    def test_volume_calculation(self):
+        """Basic sanity for calculate_volume_based_on_mass_and_specific_gravity."""
+        specific_gravities = _make_basic_specific_gravities()
+        design = ISMIXDesign(
+            concrete_grade=ConcreteGrade.M20,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+            mineral_admixture=MineralAdmixture.NO_ADMIXTURE,
+            exposure_condition=ExposureCondition.MILD,
+            specific_gravities=specific_gravities,
+        )
+        # mass 1000, sg 2.0 -> volume = (1000/2.0) * 0.001 = 0.5 m^3
+        self.assertAlmostEqual(design.calculate_volume_based_on_mass_and_specific_gravity(1000.0, 2.0), 0.5, places=6)
 
 if __name__ == "__main__":
     unittest.main()

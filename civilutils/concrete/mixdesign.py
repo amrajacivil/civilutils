@@ -2,6 +2,11 @@
 from enum import Enum
 
 class ConcreteGrade(Enum):
+    """Concrete grades as per IS 456.
+
+    Args:
+        Enum (str): The concrete grade designation.
+    """    
     M10 = "M10"
     M15 = "M15"
     M20 = "M20"
@@ -14,6 +19,11 @@ class ConcreteGrade(Enum):
     M55 = "M55"
 
 class CementGrade(Enum):
+    """Cement grades as per IS 456.
+
+    Args:
+        Enum (str): The cement grade designation.
+    """
     OPC_33 = "OPC 33"
     OPC_43 = "OPC 43"
     OPC_53 = "OPC 53"
@@ -32,6 +42,11 @@ class CoarseAggregateType(Enum):
     CRUSHED_ANGULAR = "Crushed Angular"
 
 class FineAggregateZone(Enum):
+    """Fine aggregate zones as per IS 456.
+
+    Args:
+        Enum (str): The fine aggregate zone designation.
+    """
     ZONE_I = "Zone I"
     ZONE_II = "Zone II"
     ZONE_III = "Zone III"
@@ -74,14 +89,26 @@ class Materials(Enum):
     ADMIXTURE = "Admixture"
 
 class ChemicalAdmixture(Enum):
+    """Chemical admixtures as per IS 456.
+
+    Args:
+        Enum (str): The chemical admixture designation.
+    """ 
     SUPERPLASTICIZER = "Superplasticizer"
     PLASTICIZER = "Plasticizer"
 
 class MineralAdmixture(Enum):
+    """Mineral admixtures as per IS 456.
+
+    Args:
+        Enum (str): The mineral admixture designation.
+    """
     FLY_ASH = "Fly Ash"
     NO_ADMIXTURE = "No Admixture"
 
 class SpecificGravity:
+    """Specific gravity of materials as per IS 456.
+    """
     def __init__(self, material: Materials, value: float):
         self.material = material
         self.value = value
@@ -104,8 +131,7 @@ class ISMIXDesign:
                  fine_aggregate_surface_moisture: str | bool | None = None,
                  fine_aggregate_surface_moisture_value: float | None = None,
                  transportation_time: float | None = None,
-                 slump_mm: float | None = 50.0,
-                 slump_adjustment_pct_per_25mm: float = 0.0):
+                 slump_mm: float | None = 50.0):
         self.description = "A design methodology for integrated structural and architectural design."
         self.concrete_grade = concrete_grade
         self.maximum_nominal_size = maximum_nominal_size
@@ -114,16 +140,21 @@ class ISMIXDesign:
         # slump (mm) used to adjust water content; reference table is for 50 mm
         self.slump_mm = float(slump_mm) if slump_mm is not None else None
         # fraction change per 25 mm (e.g. 0.03 == 3% change per 25 mm)
-        self.slump_adjustment_pct_per_25mm = float(slump_adjustment_pct_per_25mm)
+        self.slump_adjustment_pct_per_25mm = 0.03
         self.minimum_cement_content = minimum_cement_content
         self.maximum_cement_content = maximum_cement_content
         self.cement_grade = cement_grade
         self.chemical_admixture = chemical_admixture
 
         mandatory_items = {Materials.CEMENT, Materials.COARSE_AGGREGATE, Materials.WATER, Materials.FINE_AGGREGATE}
-        if not mandatory_items.issubset({sg.material for sg in specific_gravities}):
+        # Accept either a list[SpecificGravity] or a dict[Materials, SpecificGravity]
+        if isinstance(specific_gravities, dict):
+            sg_map = specific_gravities
+        else:
+            sg_map = {sg.material: sg for sg in specific_gravities}
+        if not mandatory_items.issubset(set(sg_map.keys())):
             raise ValueError("Missing mandatory specific gravities.")
-        self.specific_gravities = specific_gravities
+        self.specific_gravities = sg_map
 
         # pumping / method of placing
         self.pumping = self._parse_yes_no(method_of_placing)
@@ -224,7 +255,6 @@ class ISMIXDesign:
             MaximumNominalSize.SIZE_40: 165.0,
         }
 
-        
         base_water = float(mapping[self.maximum_nominal_size])
         if self.slump_mm is not None:
             steps = (self.slump_mm - 50.0) / 25.0  # positive if slump > 50, negative if < 50
@@ -276,14 +306,130 @@ class ISMIXDesign:
         self.target_mean_compressive_strength = target_mean
         return target_mean
 
+    def __calculate_cement_content(self, water_cement_ratio, water_content):
+        MINIMUM_CEMENT_CONTENT_BY_EXPOSURE = {
+            ExposureCondition.MILD: 300.0,
+            ExposureCondition.MODERATE: 300.0,
+            ExposureCondition.SEVERE: 320.0,
+            ExposureCondition.VERY_SEVERE: 340.0,
+            ExposureCondition.EXTREME: 360.0,
+        }
+        minimum_cement_content = MINIMUM_CEMENT_CONTENT_BY_EXPOSURE[self.exposure_condition]
+        cement_content= water_content / water_cement_ratio
+        self.minimum_cement_content = max(cement_content, minimum_cement_content)   
+        return self.minimum_cement_content
+    
+    def __calculate_aggregate_content(self):
+        """Determine volume fraction of coarse aggregate per unit volume of
+        total aggregate from IS table (Table 3) depending on fine aggregate
+        zone and nominal maximum size.
+
+        Raises:
+            ValueError: If fine_aggregate_zone or maximum_nominal_size is not set.
+            ValueError: If unsupported combination of maximum_nominal_size and fine_aggregate_zone is used.
+
+        Returns:
+            float: Proportion of coarse aggregate.
+        """
+        if self.fine_aggregate_zone is None or self.maximum_nominal_size is None:
+            raise ValueError("fine_aggregate_zone and maximum_nominal_size must be set to determine coarse aggregate proportion")
+
+        table = {
+            MaximumNominalSize.SIZE_10: {
+                FineAggregateZone.ZONE_IV: 0.50,
+                FineAggregateZone.ZONE_III: 0.48,
+                FineAggregateZone.ZONE_II: 0.46,
+                FineAggregateZone.ZONE_I: 0.44,
+            },
+            MaximumNominalSize.SIZE_20: {
+                FineAggregateZone.ZONE_IV: 0.66,
+                FineAggregateZone.ZONE_III: 0.64,
+                FineAggregateZone.ZONE_II: 0.62,
+                FineAggregateZone.ZONE_I: 0.60,
+            },
+            MaximumNominalSize.SIZE_40: {
+                FineAggregateZone.ZONE_IV: 0.75,
+                FineAggregateZone.ZONE_III: 0.73,
+                FineAggregateZone.ZONE_II: 0.71,
+                FineAggregateZone.ZONE_I: 0.69,
+            },
+        }
+
+        try:
+            prop = table[self.maximum_nominal_size][self.fine_aggregate_zone]
+        except KeyError:
+            raise ValueError("unsupported combination of maximum_nominal_size and fine_aggregate_zone")
+
+        self.coarse_aggregate_proportion = float(prop)
+        if self.water_cement_ratio == 0.5:
+            self.coarse_aggregate_proportion = float(prop)
+        elif self.water_cement_ratio < 0.5:
+            decrease = (0.5 - self.water_cement_ratio) / 0.05
+            self.coarse_aggregate_proportion = float(prop) + decrease * 0.01
+        else:
+            increase = (self.water_cement_ratio - 0.5) / 0.05
+            self.coarse_aggregate_proportion = float(prop) - increase * 0.01
+
+        if self.is_pumpable:
+            self.coarse_aggregate_proportion *= 0.9
+
+        fine_aggregate_proportion = 1 - self.coarse_aggregate_proportion
+        self.fine_aggregate_proportion = float(fine_aggregate_proportion)
+
+        return self.coarse_aggregate_proportion, self.fine_aggregate_proportion
+
+    def calculate_volume_based_on_mass_and_specific_gravity(self,mass,specific_gravity):
+        """Calculate the volume based on mass and specific gravity.
+
+        Args:
+            mass (float): The mass of the material.
+            specific_gravity (float): The specific gravity of the material.
+
+        Returns:
+            float: The volume of the material.
+        """        
+        volume = (mass / specific_gravity) * (1/1000)
+        return volume
+
+    def get_specific_gravity(self, material: Materials) -> float:
+        """Return the numeric specific gravity for a given material (raises if missing)."""
+        sg = self.specific_gravities.get(material)
+        if sg is None:
+            raise ValueError(f"specific gravity for {material} not provided")
+        return float(sg.value)
+
     def calculate(self):
         target_mean_strength = self._calculate_target_mean_compressive_strength()
         water_cement_ratio = self._calculate_water_cement_ratio_by_is456()
         water_content = self._calculate_water_content()
+        cement_content = self.__calculate_cement_content(water_cement_ratio, water_content)
+        coarse_aggregate_proportion, fine_aggregate_proportion = self.__calculate_aggregate_content()
+
+        volume_of_concrete=1
+        volume_of_cement = self.calculate_volume_based_on_mass_and_specific_gravity(
+            cement_content, self.get_specific_gravity(Materials.CEMENT)
+        )
+        volume_of_water = self.calculate_volume_based_on_mass_and_specific_gravity(
+            water_content, self.get_specific_gravity(Materials.WATER)
+        )
+        # admixture content is 1.1% of cement content
+        self.admixture_content = 0.011 * cement_content
+        volume_of_admixture = self.calculate_volume_based_on_mass_and_specific_gravity(
+            self.admixture_content, self.get_specific_gravity(Materials.ADMIXTURE)
+        )
+        volume_of_all_in_aggregate=1-volume_of_cement - volume_of_water - volume_of_admixture
+
+        self.coarse_aggregate_content = volume_of_all_in_aggregate * coarse_aggregate_proportion \
+                                    * self.get_specific_gravity(Materials.COARSE_AGGREGATE) * 1000
+        self.fine_aggregate_content = volume_of_all_in_aggregate * fine_aggregate_proportion \
+                                    * self.get_specific_gravity(Materials.FINE_AGGREGATE) * 1000
 
         return {
             "target_mean_strength": target_mean_strength,
             "water_cement_ratio": water_cement_ratio,
             "water_content": water_content,
+            "cement_content": cement_content,
+            "coarse_aggregate_content": coarse_aggregate_proportion,
+            "fine_aggregate_content": fine_aggregate_proportion,
         }
 
