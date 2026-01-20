@@ -122,15 +122,14 @@ class ISMIXDesign:
                  cement_grade: CementGrade | None = None,
                  minimum_cement_content: float | None = None,
                  maximum_cement_content: float | None = None,
-                 method_of_placing: str | bool | None = None,
+                 is_pumpable: str | bool = True ,
                  chemical_admixture: ChemicalAdmixture | None = None,
                  coarse_aggregate_type: CoarseAggregateType | None = None,
-                 coarse_aggregate_surface_moisture: str | bool | None = None,
-                 coarse_aggregate_surface_moisture_value: float | None = None,
+                 coarse_aggregate_water_absorption: float = 0.0,
+                 coarse_aggregate_surface_moisture: float = 0.0,
                  fine_aggregate_zone: FineAggregateZone | None = None,
-                 fine_aggregate_surface_moisture: str | bool | None = None,
-                 fine_aggregate_surface_moisture_value: float | None = None,
-                 transportation_time: float | None = None,
+                 fine_aggregate_surface_moisture: float = 0.0,
+                 fine_aggregate_water_absorption: float = 0.0,
                  slump_mm: float | None = 50.0):
         self.description = "A design methodology for integrated structural and architectural design."
         self.concrete_grade = concrete_grade
@@ -155,48 +154,15 @@ class ISMIXDesign:
         if not mandatory_items.issubset(set(sg_map.keys())):
             raise ValueError("Missing mandatory specific gravities.")
         self.specific_gravities = sg_map
-
-        # pumping / method of placing
-        self.pumping = self._parse_yes_no(method_of_placing)
-
-        # coarse aggregate surface moisture
+        self.is_pumpable = is_pumpable
+        
         self.coarse_aggregate_type = coarse_aggregate_type
-        self.coarse_aggregate_surface_moisture_present = self._parse_yes_no(coarse_aggregate_surface_moisture)
-        if self.coarse_aggregate_surface_moisture_present is True:
-            if coarse_aggregate_surface_moisture_value is None:
-                raise ValueError("coarse_aggregate_surface_moisture_value required when coarse_aggregate_surface_moisture is 'yes'")
-            self.coarse_aggregate_surface_moisture = float(coarse_aggregate_surface_moisture_value)
-        elif self.coarse_aggregate_surface_moisture_present is False:
-            self.coarse_aggregate_surface_moisture = 0.0
-        else:
-            self.coarse_aggregate_surface_moisture = None
-
-        # fine aggregate surface moisture
+        self.coarse_aggregate_water_absorption = coarse_aggregate_water_absorption
+        self.coarse_aggregate_surface_moisture = coarse_aggregate_surface_moisture
         self.fine_aggregate_zone = fine_aggregate_zone
-        self.fine_aggregate_surface_moisture_present = self._parse_yes_no(fine_aggregate_surface_moisture)
-        if self.fine_aggregate_surface_moisture_present is True:
-            if fine_aggregate_surface_moisture_value is None:
-                raise ValueError("fine_aggregate_surface_moisture_value required when fine_aggregate_surface_moisture is 'yes'")
-            self.fine_aggregate_surface_moisture = float(fine_aggregate_surface_moisture_value)
-        elif self.fine_aggregate_surface_moisture_present is False:
-            self.fine_aggregate_surface_moisture = 0.0
-        else:
-            self.fine_aggregate_surface_moisture = None
-
-        self.transportation_time = transportation_time
-
-    @staticmethod
-    def _parse_yes_no(value: str | bool | None) -> bool | None:
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return value
-        v = str(value).strip().lower()
-        if v in ("yes", "y", "true", "1"):
-            return True
-        if v in ("no", "n", "false", "0"):
-            return False
-        raise ValueError("expecting boolean or one of: 'yes','no','y','n'")
+        self.fine_aggregate_surface_moisture = fine_aggregate_surface_moisture
+        self.fine_aggregate_water_absorption = fine_aggregate_water_absorption
+        
 
     def _calculate_water_cement_ratio_by_is456(self, reinforced: bool = True) -> float:
         """
@@ -228,10 +194,21 @@ class ISMIXDesign:
         }
         mapping = reinforced_map if reinforced else plain_map
         wcr = mapping[self.exposure_condition]
-        if self.mineral_admixture != MineralAdmixture.NO_ADMIXTURE:
+        self.initial_water_cement_ratio=wcr
+        if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
             wcr -= 0.05
-        self.maximum_water_cement_ratio = float(wcr)
-        return self.maximum_water_cement_ratio
+        self.water_cement_ratio = float(wcr)
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Water / Cement Ratio (IS456 Table 5)")
+            print("-"*60)
+            print(f"Exposure condition : {self.exposure_condition.value}")
+            print(f"Reinforced member  : {'Yes' if reinforced else 'No'}")
+            print(f"Calculated W/C     : {self.water_cement_ratio:.3f}")
+            print("-"*60)
+
+        return self.water_cement_ratio
 
     def _calculate_water_content(self):
         """
@@ -266,6 +243,22 @@ class ISMIXDesign:
             adjusted_water *= 0.8
 
         self.maximum_water_content = adjusted_water
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Water Content Determination")
+            print("-"*60)
+            print(f"Maximum nominal aggregate size : {self.maximum_nominal_size.value} mm")
+            print(f"Base water content (50 mm slump): {base_water:.2f} kg/m^3")
+            if self.slump_mm is not None:
+                pct_change = (self.slump_adjustment_pct_per_25mm * 100.0)
+                print(f"Slump provided                 : {self.slump_mm:.1f} mm")
+                print(f"Adjustment per 25 mm           : {pct_change:.1f}%")
+                print(f"Adjusted water content         : {adjusted_water:.2f} kg/m^3")
+            if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
+                print("Superplasticizer used: water reduced by 20%")
+            print("-"*60)
+
         return adjusted_water
 
     
@@ -304,6 +297,16 @@ class ISMIXDesign:
         self.characteristic_strength = fck
         self.standard_deviation = s
         self.target_mean_compressive_strength = target_mean
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Target Mean Compressive Strength")
+            print("-"*60)
+            print(f"Concrete grade (f_ck) : {self.concrete_grade.value} => {fck} N/mm^2")
+            print(f"Standard deviation    : {s:.2f} N/mm^2")
+            print(f"Target mean strength  : {target_mean:.2f} N/mm^2")
+            print("-"*60)
+
         return target_mean
 
     def __calculate_cement_content(self, water_cement_ratio, water_content):
@@ -317,6 +320,16 @@ class ISMIXDesign:
         minimum_cement_content = MINIMUM_CEMENT_CONTENT_BY_EXPOSURE[self.exposure_condition]
         cement_content= water_content / water_cement_ratio
         self.minimum_cement_content = max(cement_content, minimum_cement_content)   
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Cement Content Calculation")
+            print("-"*60)
+            print(f"Computed cement (water / w/c) : {cement_content:.2f} kg/m^3")
+            print(f"Minimum cement for exposure   : {minimum_cement_content:.2f} kg/m^3")
+            print(f"Final cement content selected : {self.minimum_cement_content:.2f} kg/m^3")
+            print("-"*60)
+
         return self.minimum_cement_content
     
     def __calculate_aggregate_content(self):
@@ -361,20 +374,36 @@ class ISMIXDesign:
             raise ValueError("unsupported combination of maximum_nominal_size and fine_aggregate_zone")
 
         self.coarse_aggregate_proportion = float(prop)
-        if self.water_cement_ratio == 0.5:
+        
+        if self.initial_water_cement_ratio == 0.5:
             self.coarse_aggregate_proportion = float(prop)
-        elif self.water_cement_ratio < 0.5:
-            decrease = (0.5 - self.water_cement_ratio) / 0.05
+        elif self.initial_water_cement_ratio < 0.5:
+            decrease = abs(round((0.5 - self.initial_water_cement_ratio) / 0.05))
+            print(prop,decrease*0.01)
             self.coarse_aggregate_proportion = float(prop) + decrease * 0.01
         else:
-            increase = (self.water_cement_ratio - 0.5) / 0.05
+            increase = abs(round((self.initial_water_cement_ratio - 0.5) / 0.05))
             self.coarse_aggregate_proportion = float(prop) - increase * 0.01
-
+        print(self.coarse_aggregate_proportion)
         if self.is_pumpable:
-            self.coarse_aggregate_proportion *= 0.9
-
+            self.coarse_aggregate_proportion = self.coarse_aggregate_proportion - 0.1 * self.coarse_aggregate_proportion
+        print(self.coarse_aggregate_proportion)
         fine_aggregate_proportion = 1 - self.coarse_aggregate_proportion
         self.fine_aggregate_proportion = float(fine_aggregate_proportion)
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Aggregate Proportions (by volume)")
+            print("-"*60)
+            print(f"Fine aggregate zone            : {self.fine_aggregate_zone.value}")
+            print(f"Nominal max size (mm)         : {self.maximum_nominal_size.value}")
+            print(f"Base coarse proportion (table) : {prop:.3f}")
+            print(f"W/C ratio                      : {self.water_cement_ratio:.3f}")
+            print(f"Adjusted coarse proportion     : {self.coarse_aggregate_proportion:.3f}")
+            if self.is_pumpable:
+                print("Pumpable mix adjustment applied: coarse proportion reduced by 10%")
+            print(f"Fine aggregate proportion      : {self.fine_aggregate_proportion:.3f}")
+            print("-"*60)
 
         return self.coarse_aggregate_proportion, self.fine_aggregate_proportion
 
@@ -389,6 +418,10 @@ class ISMIXDesign:
             float: The volume of the material.
         """        
         volume = (mass / specific_gravity) * (1/1000)
+
+        if getattr(self, "_display_flag", False):
+            print(f"Volume from mass {mass:.2f} kg and SG {specific_gravity:.3f} -> {volume:.4f} m^3")
+
         return volume
 
     def get_specific_gravity(self, material: Materials) -> float:
@@ -398,7 +431,14 @@ class ISMIXDesign:
             raise ValueError(f"specific gravity for {material} not provided")
         return float(sg.value)
 
-    def calculate(self):
+    def calculate(self, display_result: bool = False):
+        self._display_flag = bool(display_result)
+
+        if self._display_flag:
+            print("\n" + "="*60)
+            print("Concrete Mix Design - Calculation Summary")
+            print("="*60)
+
         target_mean_strength = self._calculate_target_mean_compressive_strength()
         water_cement_ratio = self._calculate_water_cement_ratio_by_is456()
         water_content = self._calculate_water_content()
@@ -424,6 +464,52 @@ class ISMIXDesign:
         self.fine_aggregate_content = volume_of_all_in_aggregate * fine_aggregate_proportion \
                                     * self.get_specific_gravity(Materials.FINE_AGGREGATE) * 1000
 
+        # --- Added: corrections for aggregate water absorption and surface moisture ---
+        # Masses (kg/m^3)
+
+
+        
+        coarse_aggregate_water_absorption = self.coarse_aggregate_content * self.coarse_aggregate_water_absorption * 0.01
+        fine_aggregate_water_absorption = self.fine_aggregate_content * self.fine_aggregate_water_absorption * 0.01
+        coarse_aggregate_surface_moisture = self.coarse_aggregate_content * self.coarse_aggregate_surface_moisture * 0.01
+        fine_aggregate_surface_moisture = self.fine_aggregate_content * self.fine_aggregate_surface_moisture * 0.01
+        free_water_after_correction = water_content + coarse_aggregate_water_absorption + fine_aggregate_water_absorption - coarse_aggregate_surface_moisture - fine_aggregate_surface_moisture
+        self.aggregate_absorbed_water = {"coarse": coarse_aggregate_water_absorption, "fine": fine_aggregate_water_absorption}
+        self.aggregate_surface_moisture = {"coarse": coarse_aggregate_surface_moisture, "fine": fine_aggregate_surface_moisture}
+        self.free_water_after_correction = float(free_water_after_correction)
+        volume_of_free_water = self.calculate_volume_based_on_mass_and_specific_gravity(
+            free_water_after_correction, self.get_specific_gravity(Materials.WATER)
+        )
+        self.volume_of_free_water = float(volume_of_free_water)
+
+        if self._display_flag:
+            print("\n" + "-"*60)
+            print("Final Mix Quantities (per m^3 of concrete)")
+            print("-"*60)
+            print(f"{'Component':<20} | {'Mass (kg/m^3)':>15} | {'Volume (m^3)':>12}")
+            print("-"*60)
+            # volumes were calculated earlier
+            print(f"{'Cement':<20} | {cement_content:15.2f} | {volume_of_cement:12.4f}")
+            print(f"{'Water':<20} | {water_content:15.2f} | {volume_of_water:12.4f}")
+            print(f"{'Admixture':<20} | {self.admixture_content:15.2f} | {volume_of_admixture:12.4f}")
+            print(f"{'Coarse aggregate':<20} | {self.coarse_aggregate_content:15.2f} | {'-':>12}")
+            print(f"{'Fine aggregate':<20} | {self.fine_aggregate_content:15.2f} | {'-':>12}")
+            print("-"*60)
+            # reference only: free water after absorption/surface moisture corrections
+            print(f"After absorption and surface moisture adjustments, free water available: "
+                  f"{self.free_water_after_correction:.2f} kg "
+                  f"({self.volume_of_free_water:.4f} m^3)")
+            # additional reference: aggregate absorbed water and surface moisture (kg)
+            print(f"Coarse aggregate absorbed water : {coarse_aggregate_water_absorption:.2f} kg")
+            print(f"Fine   aggregate absorbed water : {fine_aggregate_water_absorption:.2f} kg")
+            print(f"Coarse aggregate surface moisture: {coarse_aggregate_surface_moisture:.2f} kg")
+            print(f"Fine   aggregate surface moisture: {fine_aggregate_surface_moisture:.2f} kg")
+            print("-"*60)
+
+        # clear display flag
+        self._display_flag = False
+
+        
         return {
             "target_mean_strength": target_mean_strength,
             "water_cement_ratio": water_cement_ratio,
