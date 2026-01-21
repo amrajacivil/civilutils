@@ -1,4 +1,4 @@
-Thank you for your interest in contributing to taxcalcindia!
+Thank you for your interest in contributing to civilutils!
 
 How to contribute
 - Fork the repository and open a PR from a feature branch.
