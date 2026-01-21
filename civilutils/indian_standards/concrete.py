@@ -532,52 +532,52 @@ class ConcreteMixDesign:
             "mix_per_m3": {
                 "components": {
                     "cement": {
-                        "mass_kg": "cement_content (or self.minimum_cement_content)",
-                        "volume_m3": "volume_of_cement",
-                        "specific_gravity": "self.__get_specific_gravity(Materials.CEMENT)"
+                        "mass_kg": cement_content,
+                        "volume_m3": volume_of_cement,
+                        "specific_gravity": self.__get_specific_gravity(Materials.CEMENT)
                     },
                     "water": {
-                        "mass_kg": "water_content (or self.maximum_water_content)",
-                        "volume_m3": "volume_of_water",
-                        "specific_gravity": "self.__get_specific_gravity(Materials.WATER)"
+                        "mass_kg": water_content,
+                        "volume_m3": volume_of_water,
+                        "specific_gravity": self.__get_specific_gravity(Materials.WATER)
                     },
                     "admixture": {
-                        "mass_kg": "self.admixture_content",
-                        "volume_m3": "volume_of_admixture",
-                        "specific_gravity": "self.__get_specific_gravity(Materials.ADMIXTURE)",
-                        "type": "self.mineral_admixture.name or self.chemical_admixture.name"
+                        "mass_kg": self.admixture_content,
+                        "volume_m3": volume_of_admixture,
+                        "specific_gravity": self.__get_specific_gravity(Materials.ADMIXTURE),
+                        "type": getattr(self.chemical_admixture, "name", None)
                     },
                     "coarse_aggregate": {
-                        "mass_kg": "self.coarse_aggregate_content",
-                        "volume_m3": "self.coarse_aggregate_volume",
-                        "specific_gravity": "self.__get_specific_gravity(Materials.COARSE_AGGREGATE)",
-                        "volume_proportion": "self.coarse_aggregate_proportion"
+                        "mass_kg": self.coarse_aggregate_content,
+                        "volume_m3": self.coarse_aggregate_volume,
+                        "specific_gravity": self.__get_specific_gravity(Materials.COARSE_AGGREGATE),
+                        "volume_proportion": self.coarse_aggregate_proportion
                     },
                     "fine_aggregate": {
-                        "mass_kg": "self.fine_aggregate_content",
-                        "volume_m3": "self.fine_aggregate_volume",
-                        "specific_gravity": "self.__get_specific_gravity(Materials.FINE_AGGREGATE)",
-                        "volume_proportion": "self.fine_aggregate_proportion"
+                        "mass_kg": self.fine_aggregate_content,
+                        "volume_m3": self.fine_aggregate_volume,
+                        "specific_gravity": self.__get_specific_gravity(Materials.FINE_AGGREGATE),
+                        "volume_proportion": self.fine_aggregate_proportion
                     }
                 },
                 "total_concrete_volume_m3": 1.0
             },
             "aggregate_adjustments_kg": {
-                "coarse_absorbed_water": "self.aggregate_absorbed_water['coarse']",
-                "fine_absorbed_water": "self.aggregate_absorbed_water['fine']",
-                "coarse_surface_moisture": "self.aggregate_surface_moisture['coarse']",
-                "fine_surface_moisture": "self.aggregate_surface_moisture['fine']",
-                "free_water_after_correction": "self.free_water_after_correction"
+                "coarse_absorbed_water": self.aggregate_absorbed_water['coarse'],
+                "fine_absorbed_water": self.aggregate_absorbed_water['fine'],
+                "coarse_surface_moisture": self.aggregate_surface_moisture['coarse'],
+                "fine_surface_moisture": self.aggregate_surface_moisture['fine'],
+                "free_water_after_correction": self.free_water_after_correction
             },
             "provenance": {
-                "maximum_nominal_size_mm": "self.maximum_nominal_size.value",
-                "fine_aggregate_zone": "self.fine_aggregate_zone.value",
-                "is_pumpable": "self.is_pumpable",
-                "slump_mm": "self.slump_mm",
-                "chemical_admixture": "self.chemical_admixture.name or None",
-                "chemical_admixture_percentage": "self.chemical_admixture_percentage",
-                "mineral_admixture": "self.mineral_admixture.name or None",
-                "mineral_admixture_percentage": "self.mineral_admixture_percentage"
+                "maximum_nominal_size_mm": self.maximum_nominal_size.value,
+                "fine_aggregate_zone": self.fine_aggregate_zone.value,
+                "is_pumpable": self.is_pumpable,
+                "slump_mm": self.slump_mm,
+                "chemical_admixture": getattr(self.chemical_admixture, "value", None),
+                "chemical_admixture_percentage": self.chemical_admixture_percentage,
+                "mineral_admixture": getattr(self.mineral_admixture, "value", None),
+                "mineral_admixture_percentage": self.mineral_admixture_percentage
             }
         }
 
