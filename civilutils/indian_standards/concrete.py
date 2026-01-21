@@ -90,6 +90,10 @@ class ChemicalAdmixture(Enum):
     SUPERPLASTICIZER = "Superplasticizer"
     PLASTICIZER = "Plasticizer" #TODO: find and implement logic
 
+    def __init__(self, label: str, default_percentage: float = 20.0):
+        self.label = label
+        self.default_percentage = float(default_percentage)
+
 class MineralAdmixture(Enum):
     """Mineral admixtures as per IS 456.
 
@@ -117,6 +121,7 @@ class ConcreteMixDesign:
                  maximum_cement_content: float = 450.0,
                  is_pumpable: str | bool = True ,
                  chemical_admixture: ChemicalAdmixture | None = None,
+                 chemical_admixture_percentage: float | None = None,
                  coarse_aggregate_type: CoarseAggregateType = CoarseAggregateType.CRUSHED_ANGULAR,
                  coarse_aggregate_water_absorption: float = 0.0,
                  coarse_aggregate_surface_moisture: float = 0.0,
@@ -136,6 +141,14 @@ class ConcreteMixDesign:
         self.slump_adjustment_pct_per_25mm = 0.03
         self.maximum_cement_content = maximum_cement_content #TODO : implement logic
         self.chemical_admixture = chemical_admixture
+        if self.chemical_admixture is None:
+            self.chemical_admixture_percentage = 0.0
+        else:
+            if chemical_admixture_percentage is None:
+                self.chemical_admixture_percentage = float(chemical_admixture.default_percentage)
+            else:
+                self.chemical_admixture_percentage = float(chemical_admixture_percentage)
+
 
         mandatory_items = {Materials.CEMENT, Materials.COARSE_AGGREGATE, Materials.WATER, Materials.FINE_AGGREGATE}
         # Accept either a list[SpecificGravity] or a dict[Materials, SpecificGravity]
@@ -242,8 +255,8 @@ class ConcreteMixDesign:
             adjusted_water = base_water
 
         if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
-            adjusted_water *= 0.8
-
+            adjusted_water *= (1 - self.chemical_admixture_percentage / 100)
+        adjusted_water = round(adjusted_water)
         self.maximum_water_content = adjusted_water
 
         if getattr(self, "_display_flag", False):
@@ -258,7 +271,7 @@ class ConcreteMixDesign:
                 print(f"Adjustment per 25 mm           : {pct_change:.1f}%")
                 print(f"Adjusted water content         : {adjusted_water:.2f} kg/m^3")
             if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
-                print("Superplasticizer used: water reduced by 20%")
+                print(f"Superplasticizer used: water reduced by {self.chemical_admixture_percentage}%")
             print("-"*60)
 
         return adjusted_water
@@ -377,17 +390,16 @@ class ConcreteMixDesign:
 
         self.coarse_aggregate_proportion = float(prop)
         
-        if self.initial_water_cement_ratio == 0.5:
+        if self.water_cement_ratio == 0.5:
             self.coarse_aggregate_proportion = float(prop)
-        elif self.initial_water_cement_ratio < 0.5:
-            decrease = abs(round((0.5 - self.initial_water_cement_ratio) / 0.05))
+        elif self.water_cement_ratio < 0.5:
+            decrease = abs(round((0.5 - self.water_cement_ratio) / 0.05))
             self.coarse_aggregate_proportion = float(prop) + decrease * 0.01
         else:
-            increase = abs(round((self.initial_water_cement_ratio - 0.5) / 0.05))
+            increase = abs(round((self.water_cement_ratio - 0.5) / 0.05))
             self.coarse_aggregate_proportion = float(prop) - increase * 0.01
-        
         if self.is_pumpable:
-            self.coarse_aggregate_proportion = self.coarse_aggregate_proportion - 0.1 * self.coarse_aggregate_proportion
+            self.coarse_aggregate_proportion = round(self.coarse_aggregate_proportion * 0.9, 2)
         
         fine_aggregate_proportion = 1 - self.coarse_aggregate_proportion
         self.fine_aggregate_proportion = float(fine_aggregate_proportion)
@@ -408,12 +420,13 @@ class ConcreteMixDesign:
 
         return self.coarse_aggregate_proportion, self.fine_aggregate_proportion
 
-    def calculate_volume_based_on_mass_and_specific_gravity(self,mass,specific_gravity):
+    def calculate_volume_based_on_mass_and_specific_gravity(self,mass,specific_gravity,round_value=3):
         """Calculate the volume based on mass and specific gravity.
 
         Args:
             mass (float): The mass of the material.
             specific_gravity (float): The specific gravity of the material.
+            round_value (int): The number of decimal places to round the result.
 
         Returns:
             float: The volume of the material.
@@ -423,7 +436,7 @@ class ConcreteMixDesign:
         if getattr(self, "_display_flag", False):
             print(f"Volume from mass {mass:.2f} kg and SG {specific_gravity:.3f} -> {volume:.4f} m^3")
 
-        return volume
+        return round(volume, round_value)
 
     def __get_specific_gravity(self, material: Materials) -> float:
         """Return the numeric specific gravity for a given material (raises if missing)."""
@@ -453,7 +466,7 @@ class ConcreteMixDesign:
             water_content, self.__get_specific_gravity(Materials.WATER)
         )
         # admixture content is percentage of cement content (use resolved percentage)
-        self.admixture_content = (self.mineral_admixture_percentage / 100.0) * cement_content
+        self.admixture_content = cement_content * 0.02
         volume_of_admixture = self.calculate_volume_based_on_mass_and_specific_gravity(
             self.admixture_content, self.__get_specific_gravity(Materials.ADMIXTURE)
         )
@@ -476,6 +489,12 @@ class ConcreteMixDesign:
             free_water_after_correction, self.__get_specific_gravity(Materials.WATER)
         )
         self.volume_of_free_water = float(volume_of_free_water)
+        self.coarse_aggregate_volume = self.calculate_volume_based_on_mass_and_specific_gravity(
+            self.coarse_aggregate_content, self.__get_specific_gravity(Materials.COARSE_AGGREGATE)
+        )
+        self.fine_aggregate_volume = self.calculate_volume_based_on_mass_and_specific_gravity(
+            self.fine_aggregate_content, self.__get_specific_gravity(Materials.FINE_AGGREGATE)
+        )
 
         if self._display_flag:
             print("\n" + "-"*60)
@@ -487,8 +506,8 @@ class ConcreteMixDesign:
             print(f"{'Cement':<20} | {cement_content:15.2f} | {volume_of_cement:12.4f}")
             print(f"{'Water':<20} | {water_content:15.2f} | {volume_of_water:12.4f}")
             print(f"{'Admixture':<20} | {self.admixture_content:15.2f} | {volume_of_admixture:12.4f}")
-            print(f"{'Coarse aggregate':<20} | {self.coarse_aggregate_content:15.2f} | {'-':>12}")
-            print(f"{'Fine aggregate':<20} | {self.fine_aggregate_content:15.2f} | {'-':>12}")
+            print(f"{'Coarse aggregate':<20} | {self.coarse_aggregate_content:15.2f} | {self.coarse_aggregate_volume:12.4f}")
+            print(f"{'Fine aggregate':<20} | {self.fine_aggregate_content:15.2f} | {self.fine_aggregate_volume:12.4f}")
             print("-"*60)
             # reference only: free water after absorption/surface moisture corrections
             print(f"After absorption and surface moisture adjustments, free water available: "
@@ -530,13 +549,13 @@ class ConcreteMixDesign:
                     },
                     "coarse_aggregate": {
                         "mass_kg": "self.coarse_aggregate_content",
-                        "volume_m3": "computed: volume_of_all_in_aggregate * coarse_aggregate_proportion (or self.coarse_aggregate_content / (self.__get_specific_gravity(Materials.COARSE_AGGREGATE)*1000))",
+                        "volume_m3": "self.coarse_aggregate_volume",
                         "specific_gravity": "self.__get_specific_gravity(Materials.COARSE_AGGREGATE)",
                         "volume_proportion": "self.coarse_aggregate_proportion"
                     },
                     "fine_aggregate": {
                         "mass_kg": "self.fine_aggregate_content",
-                        "volume_m3": "computed: volume_of_all_in_aggregate * fine_aggregate_proportion (or self.fine_aggregate_content / (self.__get_specific_gravity(Materials.FINE_AGGREGATE)*1000))",
+                        "volume_m3": "self.fine_aggregate_volume",
                         "specific_gravity": "self.__get_specific_gravity(Materials.FINE_AGGREGATE)",
                         "volume_proportion": "self.fine_aggregate_proportion"
                     }
@@ -550,15 +569,13 @@ class ConcreteMixDesign:
                 "fine_surface_moisture": "self.aggregate_surface_moisture['fine']",
                 "free_water_after_correction": "self.free_water_after_correction"
             },
-            "volumes_m3": {
-                "volume_of_free_water": "self.volume_of_free_water"
-            },
             "provenance": {
                 "maximum_nominal_size_mm": "self.maximum_nominal_size.value",
                 "fine_aggregate_zone": "self.fine_aggregate_zone.value",
                 "is_pumpable": "self.is_pumpable",
                 "slump_mm": "self.slump_mm",
                 "chemical_admixture": "self.chemical_admixture.name or None",
+                "chemical_admixture_percentage": "self.chemical_admixture_percentage",
                 "mineral_admixture": "self.mineral_admixture.name or None",
                 "mineral_admixture_percentage": "self.mineral_admixture_percentage"
             }

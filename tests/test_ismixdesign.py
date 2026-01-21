@@ -273,7 +273,7 @@ class TestConcreteMixDesignExtra(unittest.TestCase):
         )
         result = design.compute_mix_design(display_result=False)
         # verify top-level keys exist
-        for k in ("summary", "mix_per_m3", "aggregate_adjustments_kg", "volumes_m3", "provenance"):
+        for k in ("summary", "mix_per_m3", "aggregate_adjustments_kg", "provenance"):
             self.assertIn(k, result)
         # ensure provenance contains expected fields
         prov = result["provenance"]
