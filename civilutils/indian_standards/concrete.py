@@ -109,7 +109,7 @@ class SpecificGravity:
         self.material = material
         self.value = value
 
-class ISMIXDesign:
+class ConcreteMixDesign:
     def __init__(self, concrete_grade: ConcreteGrade,
                  exposure_condition: ExposureCondition,
                  specific_gravities: list[SpecificGravity],
@@ -381,15 +381,14 @@ class ISMIXDesign:
             self.coarse_aggregate_proportion = float(prop)
         elif self.initial_water_cement_ratio < 0.5:
             decrease = abs(round((0.5 - self.initial_water_cement_ratio) / 0.05))
-            print(prop,decrease*0.01)
             self.coarse_aggregate_proportion = float(prop) + decrease * 0.01
         else:
             increase = abs(round((self.initial_water_cement_ratio - 0.5) / 0.05))
             self.coarse_aggregate_proportion = float(prop) - increase * 0.01
-        print(self.coarse_aggregate_proportion)
+        
         if self.is_pumpable:
             self.coarse_aggregate_proportion = self.coarse_aggregate_proportion - 0.1 * self.coarse_aggregate_proportion
-        print(self.coarse_aggregate_proportion)
+        
         fine_aggregate_proportion = 1 - self.coarse_aggregate_proportion
         self.fine_aggregate_proportion = float(fine_aggregate_proportion)
 
@@ -433,9 +432,8 @@ class ISMIXDesign:
             raise ValueError(f"specific gravity for {material} not provided")
         return float(sg.value)
 
-    def calculate(self, display_result: bool = False):
+    def compute_mix_design(self, display_result: bool = False):
         self._display_flag = bool(display_result)
-
         if self._display_flag:
             print("\n" + "="*60)
             print("Concrete Mix Design - Calculation Summary")
