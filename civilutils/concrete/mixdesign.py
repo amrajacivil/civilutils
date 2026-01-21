@@ -18,24 +18,17 @@ class ConcreteGrade(Enum):
     M50 = "M50"
     M55 = "M55"
 
-class CementGrade(Enum):
-    """Cement grades as per IS 456.
-
-    Args:
-        Enum (str): The cement grade designation.
-    """
-    OPC_33 = "OPC 33"
-    OPC_43 = "OPC 43"
-    OPC_53 = "OPC 53"
-    PPC = "PPC"
-    PSC = "PSC"
-
 class MaximumNominalSize(Enum):
     SIZE_10 = 10
     SIZE_20 = 20
     SIZE_40 = 40
 
 class CoarseAggregateType(Enum):
+    """Coarse aggregate types as per IS 456.
+
+    Args:
+        Enum (str): The coarse aggregate type designation.
+    """    
     CRUSHED_STONE = "Crushed Stone"
     GRAVEL = "Gravel"
     ROUNDED_GRAVEL = "Rounded Gravel"
@@ -95,7 +88,7 @@ class ChemicalAdmixture(Enum):
         Enum (str): The chemical admixture designation.
     """ 
     SUPERPLASTICIZER = "Superplasticizer"
-    PLASTICIZER = "Plasticizer"
+    PLASTICIZER = "Plasticizer" #TODO: find and implement logic
 
 class MineralAdmixture(Enum):
     """Mineral admixtures as per IS 456.
@@ -103,8 +96,11 @@ class MineralAdmixture(Enum):
     Args:
         Enum (str): The mineral admixture designation.
     """
-    FLY_ASH = "Fly Ash"
-    NO_ADMIXTURE = "No Admixture"
+    FLY_ASH = ("Fly Ash", 10.0)        # default percentage (e.g. % replacement of cement)
+
+    def __init__(self, label: str, default_percentage: float = 0.0):
+        self.label = label
+        self.default_percentage = float(default_percentage)
 
 class SpecificGravity:
     """Specific gravity of materials as per IS 456.
@@ -115,34 +111,30 @@ class SpecificGravity:
 
 class ISMIXDesign:
     def __init__(self, concrete_grade: ConcreteGrade,
-                 maximum_nominal_size: MaximumNominalSize,
-                 mineral_admixture: MineralAdmixture,
                  exposure_condition: ExposureCondition,
                  specific_gravities: list[SpecificGravity],
-                 cement_grade: CementGrade | None = None,
-                 minimum_cement_content: float | None = None,
-                 maximum_cement_content: float | None = None,
+                 maximum_nominal_size: MaximumNominalSize = MaximumNominalSize.SIZE_20,
+                 maximum_cement_content: float = 450.0,
                  is_pumpable: str | bool = True ,
                  chemical_admixture: ChemicalAdmixture | None = None,
-                 coarse_aggregate_type: CoarseAggregateType | None = None,
+                 coarse_aggregate_type: CoarseAggregateType = CoarseAggregateType.CRUSHED_ANGULAR,
                  coarse_aggregate_water_absorption: float = 0.0,
                  coarse_aggregate_surface_moisture: float = 0.0,
-                 fine_aggregate_zone: FineAggregateZone | None = None,
+                 fine_aggregate_zone: FineAggregateZone = FineAggregateZone.ZONE_II,
                  fine_aggregate_surface_moisture: float = 0.0,
                  fine_aggregate_water_absorption: float = 0.0,
-                 slump_mm: float | None = 50.0):
-        self.description = "A design methodology for integrated structural and architectural design."
+                 slump_mm: float  = 50.0,
+                 mineral_admixture: MineralAdmixture | None = None,
+                 mineral_admixture_percentage: float | None = None):
         self.concrete_grade = concrete_grade
         self.maximum_nominal_size = maximum_nominal_size
-        self.mineral_admixture = mineral_admixture
+        
         self.exposure_condition = exposure_condition
         # slump (mm) used to adjust water content; reference table is for 50 mm
         self.slump_mm = float(slump_mm) if slump_mm is not None else None
         # fraction change per 25 mm (e.g. 0.03 == 3% change per 25 mm)
         self.slump_adjustment_pct_per_25mm = 0.03
-        self.minimum_cement_content = minimum_cement_content
-        self.maximum_cement_content = maximum_cement_content
-        self.cement_grade = cement_grade
+        self.maximum_cement_content = maximum_cement_content #TODO : implement logic
         self.chemical_admixture = chemical_admixture
 
         mandatory_items = {Materials.CEMENT, Materials.COARSE_AGGREGATE, Materials.WATER, Materials.FINE_AGGREGATE}
@@ -162,9 +154,19 @@ class ISMIXDesign:
         self.fine_aggregate_zone = fine_aggregate_zone
         self.fine_aggregate_surface_moisture = fine_aggregate_surface_moisture
         self.fine_aggregate_water_absorption = fine_aggregate_water_absorption
+
+        self.mineral_admixture = mineral_admixture #TODO : implement logic
+        # resolved percentage: user-provided overrides enum default
+        if self.mineral_admixture is None:
+            self.mineral_admixture_percentage = 0.0
+        else:
+            if mineral_admixture_percentage is None:
+                self.mineral_admixture_percentage = float(mineral_admixture.default_percentage)
+            else:
+                self.mineral_admixture_percentage = float(mineral_admixture_percentage)
         
 
-    def _calculate_water_cement_ratio_by_is456(self, reinforced: bool = True) -> float:
+    def __calculate_water_cement_ratio_by_is456(self, reinforced: bool = True) -> float:
         """
         Determine maximum water/cement ratio from IS456 Table 5 for
         normal-weight aggregates of 20 mm nominal maximum size.
@@ -210,7 +212,7 @@ class ISMIXDesign:
 
         return self.water_cement_ratio
 
-    def _calculate_water_content(self):
+    def __calculate_water_content(self):
         """
         Determine reference water content (kg/m^3) based on nominal maximum
         aggregate size (IS table).
@@ -261,8 +263,8 @@ class ISMIXDesign:
 
         return adjusted_water
 
-    
-    def _calculate_target_mean_compressive_strength(self) -> float:
+
+    def __calculate_target_mean_compressive_strength(self) -> float:
         """
         Compute target mean compressive strength for the selected concrete grade.
 
@@ -424,7 +426,7 @@ class ISMIXDesign:
 
         return volume
 
-    def get_specific_gravity(self, material: Materials) -> float:
+    def __get_specific_gravity(self, material: Materials) -> float:
         """Return the numeric specific gravity for a given material (raises if missing)."""
         sg = self.specific_gravities.get(material)
         if sg is None:
@@ -439,36 +441,31 @@ class ISMIXDesign:
             print("Concrete Mix Design - Calculation Summary")
             print("="*60)
 
-        target_mean_strength = self._calculate_target_mean_compressive_strength()
-        water_cement_ratio = self._calculate_water_cement_ratio_by_is456()
-        water_content = self._calculate_water_content()
+        target_mean_strength = self.__calculate_target_mean_compressive_strength()
+        water_cement_ratio = self.__calculate_water_cement_ratio_by_is456()
+        water_content = self.__calculate_water_content()
         cement_content = self.__calculate_cement_content(water_cement_ratio, water_content)
         coarse_aggregate_proportion, fine_aggregate_proportion = self.__calculate_aggregate_content()
 
         volume_of_concrete=1
         volume_of_cement = self.calculate_volume_based_on_mass_and_specific_gravity(
-            cement_content, self.get_specific_gravity(Materials.CEMENT)
+            cement_content, self.__get_specific_gravity(Materials.CEMENT)
         )
         volume_of_water = self.calculate_volume_based_on_mass_and_specific_gravity(
-            water_content, self.get_specific_gravity(Materials.WATER)
+            water_content, self.__get_specific_gravity(Materials.WATER)
         )
-        # admixture content is 1.1% of cement content
-        self.admixture_content = 0.011 * cement_content
+        # admixture content is percentage of cement content (use resolved percentage)
+        self.admixture_content = (self.mineral_admixture_percentage / 100.0) * cement_content
         volume_of_admixture = self.calculate_volume_based_on_mass_and_specific_gravity(
-            self.admixture_content, self.get_specific_gravity(Materials.ADMIXTURE)
+            self.admixture_content, self.__get_specific_gravity(Materials.ADMIXTURE)
         )
         volume_of_all_in_aggregate=1-volume_of_cement - volume_of_water - volume_of_admixture
 
         self.coarse_aggregate_content = volume_of_all_in_aggregate * coarse_aggregate_proportion \
-                                    * self.get_specific_gravity(Materials.COARSE_AGGREGATE) * 1000
+                                    * self.__get_specific_gravity(Materials.COARSE_AGGREGATE) * 1000
         self.fine_aggregate_content = volume_of_all_in_aggregate * fine_aggregate_proportion \
-                                    * self.get_specific_gravity(Materials.FINE_AGGREGATE) * 1000
+                                    * self.__get_specific_gravity(Materials.FINE_AGGREGATE) * 1000
 
-        # --- Added: corrections for aggregate water absorption and surface moisture ---
-        # Masses (kg/m^3)
-
-
-        
         coarse_aggregate_water_absorption = self.coarse_aggregate_content * self.coarse_aggregate_water_absorption * 0.01
         fine_aggregate_water_absorption = self.fine_aggregate_content * self.fine_aggregate_water_absorption * 0.01
         coarse_aggregate_surface_moisture = self.coarse_aggregate_content * self.coarse_aggregate_surface_moisture * 0.01
@@ -478,7 +475,7 @@ class ISMIXDesign:
         self.aggregate_surface_moisture = {"coarse": coarse_aggregate_surface_moisture, "fine": fine_aggregate_surface_moisture}
         self.free_water_after_correction = float(free_water_after_correction)
         volume_of_free_water = self.calculate_volume_based_on_mass_and_specific_gravity(
-            free_water_after_correction, self.get_specific_gravity(Materials.WATER)
+            free_water_after_correction, self.__get_specific_gravity(Materials.WATER)
         )
         self.volume_of_free_water = float(volume_of_free_water)
 
@@ -511,11 +508,61 @@ class ISMIXDesign:
 
         
         return {
-            "target_mean_strength": target_mean_strength,
-            "water_cement_ratio": water_cement_ratio,
-            "water_content": water_content,
-            "cement_content": cement_content,
-            "coarse_aggregate_content": coarse_aggregate_proportion,
-            "fine_aggregate_content": fine_aggregate_proportion,
+            "summary": {
+                "target_mean_strength_N_per_mm2": "self.target_mean_compressive_strength", 
+                "water_cement_ratio": "self.water_cement_ratio"
+            },
+            "mix_per_m3": {
+                "components": {
+                    "cement": {
+                        "mass_kg": "cement_content (or self.minimum_cement_content)",
+                        "volume_m3": "volume_of_cement",
+                        "specific_gravity": "self.__get_specific_gravity(Materials.CEMENT)"
+                    },
+                    "water": {
+                        "mass_kg": "water_content (or self.maximum_water_content)",
+                        "volume_m3": "volume_of_water",
+                        "specific_gravity": "self.__get_specific_gravity(Materials.WATER)"
+                    },
+                    "admixture": {
+                        "mass_kg": "self.admixture_content",
+                        "volume_m3": "volume_of_admixture",
+                        "specific_gravity": "self.__get_specific_gravity(Materials.ADMIXTURE)",
+                        "type": "self.mineral_admixture.name or self.chemical_admixture.name"
+                    },
+                    "coarse_aggregate": {
+                        "mass_kg": "self.coarse_aggregate_content",
+                        "volume_m3": "computed: volume_of_all_in_aggregate * coarse_aggregate_proportion (or self.coarse_aggregate_content / (self.__get_specific_gravity(Materials.COARSE_AGGREGATE)*1000))",
+                        "specific_gravity": "self.__get_specific_gravity(Materials.COARSE_AGGREGATE)",
+                        "volume_proportion": "self.coarse_aggregate_proportion"
+                    },
+                    "fine_aggregate": {
+                        "mass_kg": "self.fine_aggregate_content",
+                        "volume_m3": "computed: volume_of_all_in_aggregate * fine_aggregate_proportion (or self.fine_aggregate_content / (self.__get_specific_gravity(Materials.FINE_AGGREGATE)*1000))",
+                        "specific_gravity": "self.__get_specific_gravity(Materials.FINE_AGGREGATE)",
+                        "volume_proportion": "self.fine_aggregate_proportion"
+                    }
+                },
+                "total_concrete_volume_m3": 1.0
+            },
+            "aggregate_adjustments_kg": {
+                "coarse_absorbed_water": "self.aggregate_absorbed_water['coarse']",
+                "fine_absorbed_water": "self.aggregate_absorbed_water['fine']",
+                "coarse_surface_moisture": "self.aggregate_surface_moisture['coarse']",
+                "fine_surface_moisture": "self.aggregate_surface_moisture['fine']",
+                "free_water_after_correction": "self.free_water_after_correction"
+            },
+            "volumes_m3": {
+                "volume_of_free_water": "self.volume_of_free_water"
+            },
+            "provenance": {
+                "maximum_nominal_size_mm": "self.maximum_nominal_size.value",
+                "fine_aggregate_zone": "self.fine_aggregate_zone.value",
+                "is_pumpable": "self.is_pumpable",
+                "slump_mm": "self.slump_mm",
+                "chemical_admixture": "self.chemical_admixture.name or None",
+                "mineral_admixture": "self.mineral_admixture.name or None",
+                "mineral_admixture_percentage": "self.mineral_admixture_percentage"
+            }
         }
 
