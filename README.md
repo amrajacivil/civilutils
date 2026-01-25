@@ -2,6 +2,8 @@
 
 A lightweight Civil Engineering Python utility package.
  
+ ![PyPI - Downloads](https://img.shields.io/pypi/dm/civilutils?color=darkgreen) ![GitHub License](https://img.shields.io/github/license/amrajacivil/civilutils?color=darkgreen) ![PyPI - Status](https://img.shields.io/pypi/status/civilutils) 
+
 
 ![Release](https://img.shields.io/badge/release-automated-blue) ![CI](https://img.shields.io/github/actions/workflow/status/amrajacivil/civilutils/release.yaml?label=CI%2FCD) ![PR Approval](https://img.shields.io/badge/PR%20Approval-required-orange) ![Code Quality](https://img.shields.io/badge/quality-high-success) 
 
@@ -54,7 +56,7 @@ result = design.compute_mix_design(display_result=True)
 
 API and source
 --------------
-Detailed documentation is available at: [Will be updated soon] . The documentation site provides downloadable formats — you can download the docs as PDF or EPUB from the Read the Docs site.
+Detailed documentation is available at:  https://civilutils.readthedocs.io/en/latest/. The documentation site provides downloadable formats — you can download the docs as PDF or EPUB from the Read the Docs site.
 
 
 Running tests

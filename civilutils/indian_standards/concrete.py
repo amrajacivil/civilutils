@@ -19,6 +19,11 @@ class ConcreteGrade(Enum):
     M55 = "M55"
 
 class MaximumNominalSize(Enum):
+    """Maximum nominal sizes of aggregates as per IS 456.
+
+    Args:
+        Enum (int): The maximum nominal size in mm.
+    """    
     SIZE_10 = 10
     SIZE_20 = 20
     SIZE_40 = 40
@@ -54,6 +59,7 @@ class ExposureCondition(Enum):
     service environment the concrete will face.
 
     Members:
+
     - MILD: Concrete surfaces protected against weather or aggressive
       conditions (e.g., sheltered or protected locations).
     - MODERATE: Exposed to condensation, rain or continuous wetting (including
@@ -75,6 +81,11 @@ class ExposureCondition(Enum):
     EXTREME = "Extreme"
 
 class Materials(Enum):
+    """Material types as per IS 456.
+
+    Args:
+        Enum (str): The material designation.
+    """    
     CEMENT = "Cement"
     FINE_AGGREGATE = "Fine Aggregate"
     COARSE_AGGREGATE = "Coarse Aggregate"
@@ -114,6 +125,8 @@ class SpecificGravity:
         self.value = value
 
 class ConcreteMixDesign:
+    """Concrete mix design parameters as per IS 10262 and IS 456.
+    """
     def __init__(self, concrete_grade: ConcreteGrade,
                  exposure_condition: ExposureCondition,
                  specific_gravities: list[SpecificGravity],
@@ -446,6 +459,14 @@ class ConcreteMixDesign:
         return float(sg.value)
 
     def compute_mix_design(self, display_result: bool = False):
+        """Compute the concrete mix design based on IS 456 and IS 10262.
+
+        Args:
+            display_result (bool, optional): Whether to display the calculation results. Defaults to False.
+
+        Returns:
+            dict: A dictionary containing the mix design parameters.
+        """        
         self._display_flag = bool(display_result)
         if self._display_flag:
             print("\n" + "="*60)
