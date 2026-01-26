@@ -238,6 +238,21 @@ class TestConcreteMixDesignExtra(unittest.TestCase):
         self.assertIn("mix_per_m3", ret)
         self.assertEqual(ret["mix_per_m3"]["total_concrete_volume_m3"], 1.0)
 
+    def test_compute_mix_design_per_volume_prints_summary_when_requested(self):
+        design = ConcreteMixDesign(
+            concrete_grade=ConcreteGrade.M30,
+            exposure_condition=ExposureCondition.MILD,
+            specific_gravities=self.sg_list,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+        )
+        buf = io.StringIO()
+        input_volume=5.0
+        with contextlib.redirect_stdout(buf):
+            ret = design.compute_mix_design_for_volume(volume_m3=input_volume, display_result=True)
+        out = buf.getvalue()
+        self.assertIn(f"Concrete Mix Design - Quantities for {input_volume:.3f} m^3", out)
+        self.assertEqual(ret["mix_for_volume_m3"]["total_concrete_volume_m3"], input_volume)
+
     def test_mineral_admixture_default_and_override_percentage(self):
         # default percentage from enum should be used if no explicit percentage passed
         design_default = ConcreteMixDesign(
@@ -282,6 +297,73 @@ class TestConcreteMixDesignExtra(unittest.TestCase):
         self.assertIn("slump_mm", prov)
         # mix_per_m3 should indicate 1.0 m3 total
         self.assertEqual(result["mix_per_m3"]["total_concrete_volume_m3"], 1.0)
+
+    # --- Tests for new volume-scaling API -------------------------------------
+
+    def test_compute_mix_design_for_volume_scales_components(self):
+        design = ConcreteMixDesign(
+            concrete_grade=ConcreteGrade.M25,
+            exposure_condition=ExposureCondition.MODERATE,
+            specific_gravities=self.sg_list,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+            slump_mm=50.0,
+            mineral_admixture=None,
+            fine_aggregate_zone=FineAggregateZone.ZONE_II
+        )
+        base = design.compute_mix_design(display_result=False)
+        scale = 2.5
+        scaled = design.compute_mix_design_for_volume(scale, display_result=False)
+
+        self.assertIn("mix_for_volume_m3", scaled)
+        self.assertEqual(scaled["mix_for_volume_m3"]["total_concrete_volume_m3"], scale)
+
+        base_components = base["mix_per_m3"]["components"]
+        scaled_components = scaled["mix_for_volume_m3"]["components"]
+
+        for name, comp in base_components.items():
+            base_mass = comp.get("mass_kg", 0.0) or 0.0
+            scaled_mass = scaled_components.get(name, {}).get("mass_kg", 0.0) or 0.0
+            self.assertAlmostEqual(scaled_mass, base_mass * scale, places=6)
+
+    def test_compute_mix_design_for_volume_invalid_volume_raises(self):
+        design = ConcreteMixDesign(
+            concrete_grade=ConcreteGrade.M20,
+            exposure_condition=ExposureCondition.MILD,
+            specific_gravities=self.sg_list,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+        )
+        with self.assertRaises(ValueError):
+            design.compute_mix_design_for_volume(0, display_result=False)
+
+    def test_compute_mix_design_with_flyash_adjusts_cement_and_includes_flyash(self):
+        design = ConcreteMixDesign(
+            concrete_grade=ConcreteGrade.M25,
+            exposure_condition=ExposureCondition.MODERATE,
+            specific_gravities=self.sg_list,
+            maximum_nominal_size=MaximumNominalSize.SIZE_20,
+            slump_mm=50.0,
+            mineral_admixture=MineralAdmixture.FLY_ASH,
+            mineral_admixture_percentage=None,  # should pick up enum default (30%)
+            fine_aggregate_zone=FineAggregateZone.ZONE_II
+        )
+
+        result = design.compute_mix_design(display_result=False)
+
+        # enum default percentage should be applied
+        self.assertAlmostEqual(design.mineral_admixture_percentage, float(MineralAdmixture.FLY_ASH.default_percentage))
+
+        # fly ash calculation should have produced a positive fly_ash_content
+        self.assertGreater(getattr(design, "fly_ash_content", 0.0), 0.0)
+
+        # returned mix must include fly_ash component matching computed value
+        components = result["mix_per_m3"]["components"]
+        self.assertIn("fly_ash", components)
+        self.assertAlmostEqual(components["fly_ash"]["mass_kg"], design.fly_ash_content, places=6)
+
+        # cement in the mix should reflect the adjusted (post-replacement) cement content
+        self.assertAlmostEqual(components["cement"]["mass_kg"], design.new_cement_content, places=6)
+        # and the instance minimum_cement_content should have been updated to the new cement content
+        self.assertAlmostEqual(design.minimum_cement_content, design.new_cement_content, places=6)
 
 
 if __name__ == "__main__":
