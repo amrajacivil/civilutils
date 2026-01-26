@@ -1,5 +1,7 @@
-"""Concrete Mix Design Package"""
+"""Concrete Mix Design using IS 456 and 10262"""
 from enum import Enum
+import math
+import warnings
 
 class ConcreteGrade(Enum):
     """Concrete grades as per IS 456.
@@ -91,6 +93,7 @@ class Materials(Enum):
     COARSE_AGGREGATE = "Coarse Aggregate"
     WATER = "Water"
     ADMIXTURE = "Admixture"
+    FLY_ASH = "Fly Ash"
 
 class ChemicalAdmixture(Enum):
     """Chemical admixtures as per IS 456.
@@ -102,6 +105,12 @@ class ChemicalAdmixture(Enum):
     PLASTICIZER = "Plasticizer" #TODO: find and implement logic
 
     def __init__(self, label: str, default_percentage: float = 20.0):
+        """Initialize the chemical admixture.
+
+        Args:
+            label (str): The chemical admixture designation.
+            default_percentage (float, optional): The default percentage of the admixture. Defaults to 20.0.
+        """        
         self.label = label
         self.default_percentage = float(default_percentage)
 
@@ -111,9 +120,15 @@ class MineralAdmixture(Enum):
     Args:
         Enum (str): The mineral admixture designation.
     """
-    FLY_ASH = ("Fly Ash", 10.0)        # default percentage (e.g. % replacement of cement)
+    FLY_ASH = ("Fly Ash", 30.0)        # default percentage (e.g. % replacement of cement)
 
     def __init__(self, label: str, default_percentage: float = 0.0):
+        """Initialize the mineral admixture.
+
+        Args:
+            label (str): The mineral admixture designation.
+            default_percentage (float, optional): The default percentage of replacement for cement. Defaults to 0.0.
+        """        
         self.label = label
         self.default_percentage = float(default_percentage)
 
@@ -121,6 +136,12 @@ class SpecificGravity:
     """Specific gravity of materials as per IS 456.
     """
     def __init__(self, material: Materials, value: float):
+        """Initialize the specific gravity of a material.
+
+        Args:
+            material (Materials): The material type.
+            value (float): The specific gravity value.
+        """
         self.material = material
         self.value = value
 
@@ -144,6 +165,30 @@ class ConcreteMixDesign:
                  slump_mm: float  = 50.0,
                  mineral_admixture: MineralAdmixture | None = None,
                  mineral_admixture_percentage: float | None = None):
+        """Initialize the concrete mix design parameters.
+
+        Args:
+            concrete_grade (ConcreteGrade): The grade of concrete (e.g. M20, M25, etc.).
+            exposure_condition (ExposureCondition): The exposure condition (e.g. Mild, Moderate, Severe).
+            specific_gravities (list[SpecificGravity]): The specific gravities of the materials.
+            maximum_nominal_size (MaximumNominalSize, optional): The maximum nominal size of the aggregate. Defaults to MaximumNominalSize.SIZE_20.
+            maximum_cement_content (float, optional): The maximum cement content (kg/m3). Defaults to 450.0.
+            is_pumpable (str | bool, optional): Whether the concrete is pumpable. Defaults to True.
+            chemical_admixture (ChemicalAdmixture | None, optional): The type of chemical admixture used. Defaults to None.
+            chemical_admixture_percentage (float | None, optional): The percentage of chemical admixture used. Defaults to None.
+            coarse_aggregate_type (CoarseAggregateType, optional): The type of coarse aggregate used. Defaults to CoarseAggregateType.CRUSHED_ANGULAR.
+            coarse_aggregate_water_absorption (float, optional): The water absorption of coarse aggregate (%). Defaults to 0.0.
+            coarse_aggregate_surface_moisture (float, optional): The surface moisture of coarse aggregate (%). Defaults to 0.0.
+            fine_aggregate_zone (FineAggregateZone, optional): The zone of fine aggregate as per IS 383. Defaults to FineAggregateZone.ZONE_II.
+            fine_aggregate_surface_moisture (float, optional): The surface moisture of fine aggregate (%). Defaults to 0.0.
+            fine_aggregate_water_absorption (float, optional): The water absorption of fine aggregate (%). Defaults to 0.0.
+            slump_mm (float, optional): The slump of concrete (mm). Defaults to 50.0.
+            mineral_admixture (MineralAdmixture | None, optional): The type of mineral admixture used. Defaults to None.
+            mineral_admixture_percentage (float | None, optional): The percentage of mineral admixture used. Defaults to None.
+
+        Raises:
+            ValueError: If any of the parameters are invalid.
+        """
         self.concrete_grade = concrete_grade
         self.maximum_nominal_size = maximum_nominal_size
         
@@ -277,12 +322,12 @@ class ConcreteMixDesign:
             print("Water Content Determination")
             print("-"*60)
             print(f"Maximum nominal aggregate size : {self.maximum_nominal_size.value} mm")
-            print(f"Base water content (50 mm slump): {base_water:.2f} kg/m^3")
+            print(f"Base water content (50 mm slump): {base_water:.2f} litres")
             if self.slump_mm is not None:
                 pct_change = (self.slump_adjustment_pct_per_25mm * 100.0)
                 print(f"Slump provided                 : {self.slump_mm:.1f} mm")
                 print(f"Adjustment per 25 mm           : {pct_change:.1f}%")
-                print(f"Adjusted water content         : {adjusted_water:.2f} kg/m^3")
+                print(f"Adjusted water content         : {adjusted_water:.2f} litres")
             if self.chemical_admixture == ChemicalAdmixture.SUPERPLASTICIZER:
                 print(f"Superplasticizer used: water reduced by {self.chemical_admixture_percentage}%")
             print("-"*60)
@@ -347,7 +392,12 @@ class ConcreteMixDesign:
         }
         minimum_cement_content = MINIMUM_CEMENT_CONTENT_BY_EXPOSURE[self.exposure_condition]
         cement_content= water_content / water_cement_ratio
-        self.minimum_cement_content = max(cement_content, minimum_cement_content)   
+        if cement_content < minimum_cement_content:
+            warnings.warn(
+                f"Calculated cement content {cement_content:.2f} kg/m^3 is less than minimum required for exposure condition {minimum_cement_content:.2f} kg/m^3",
+                UserWarning
+            )
+        self.minimum_cement_content = max(cement_content, minimum_cement_content)
 
         if getattr(self, "_display_flag", False):
             print("\n" + "-"*60)
@@ -360,6 +410,65 @@ class ConcreteMixDesign:
 
         return self.minimum_cement_content
     
+    def __calculate_cement_with_flyash_content(self, water_cement_ratio, water_content):
+        MINIMUM_CEMENT_CONTENT_BY_EXPOSURE = {
+            ExposureCondition.MILD: 300.0,
+            ExposureCondition.MODERATE: 300.0,
+            ExposureCondition.SEVERE: 320.0,
+            ExposureCondition.VERY_SEVERE: 340.0,
+            ExposureCondition.EXTREME: 360.0,
+        }
+        minimum_cement_content = MINIMUM_CEMENT_CONTENT_BY_EXPOSURE[self.exposure_condition]
+        cement_content = water_content / water_cement_ratio
+
+        if cement_content < minimum_cement_content:
+            warnings.warn(
+                f"Calculated cement content {cement_content:.2f} kg/m^3 is less than minimum required for exposure condition {minimum_cement_content:.2f} kg/m^3",
+                UserWarning
+            )
+
+        # initial minimum to compare with after using cementitious materials
+        initial_minimum_cement_content = max(cement_content, minimum_cement_content)
+
+        # assume cementitious material content increased by 10% to account for replacement chemistry
+        cementitious_material_content = cement_content * 1.10
+        # new effective water/cement_ratio based on total cementitious content
+        new_water_cement_ratio = water_content / cementitious_material_content
+
+        # determine fly ash replacement mass (use resolved mineral_admixture_percentage if provided)
+        replacement_fraction = (self.mineral_admixture_percentage / 100.0) if self.mineral_admixture_percentage > 0 else 0.30
+        fly_ash_content = math.floor(cementitious_material_content * replacement_fraction)
+
+        new_cement_content = cementitious_material_content - fly_ash_content
+        cement_savings = initial_minimum_cement_content - new_cement_content
+
+        # store computed values on the instance for later reporting
+        self.fly_ash_content = float(fly_ash_content)
+        self.cementitious_material_content = float(cementitious_material_content)
+        self.new_water_cement_ratio = float(new_water_cement_ratio)
+        self.new_cement_content = float(new_cement_content)
+        self.cement_savings = float(cement_savings)
+        # update the working minimum cement and water/cement ratio
+        self.minimum_cement_content = self.new_cement_content
+        #self.water_cement_ratio = self.new_water_cement_ratio
+
+        if getattr(self, "_display_flag", False):
+            print("\n" + "-"*60)
+            print("Cement + Fly Ash (Mineral Admixture) Calculation")
+            print("-"*60)
+            print(f"Computed cement (water / w/c)            : {cement_content:.2f} kg/m^3")
+            print(f"Minimum cement for exposure              : {minimum_cement_content:.2f} kg/m^3")
+            print(f"Initial cement selected (base)           : {initial_minimum_cement_content:.2f} kg/m^3")
+            print(f"Cementitious material (cement + others)  : {self.cementitious_material_content:.2f} kg/m^3")
+            print(f"Fly ash replacement (mass)               : {self.fly_ash_content:.2f} kg/m^3 ({replacement_fraction*100:.1f}%)")
+            print(f"Final cement content after replacement   : {self.new_cement_content:.2f} kg/m^3")
+            print(f"Cement savings                            : {self.cement_savings:.2f} kg/m^3")
+            print(f"Adjusted water/cement ratio (effective)  : {self.new_water_cement_ratio:.3f}")
+            print("-"*60)
+
+        return self.minimum_cement_content,self.fly_ash_content
+
+
     def __calculate_aggregate_content(self):
         """Determine volume fraction of coarse aggregate per unit volume of
         total aggregate from IS table (Table 3) depending on fine aggregate
@@ -445,10 +554,6 @@ class ConcreteMixDesign:
             float: The volume of the material.
         """        
         volume = (mass / specific_gravity) * (1/1000)
-
-        if getattr(self, "_display_flag", False):
-            print(f"Volume from mass {mass:.2f} kg and SG {specific_gravity:.3f} -> {volume:.4f} m^3")
-
         return round(volume, round_value)
 
     def __get_specific_gravity(self, material: Materials) -> float:
@@ -476,12 +581,30 @@ class ConcreteMixDesign:
         target_mean_strength = self.__calculate_target_mean_compressive_strength()
         water_cement_ratio = self.__calculate_water_cement_ratio_by_is456()
         water_content = self.__calculate_water_content()
-        cement_content = self.__calculate_cement_content(water_cement_ratio, water_content)
+        if self.mineral_admixture == MineralAdmixture.FLY_ASH:
+            # call dedicated cement-with-flyash path which updates w/c and cement quantities
+            cement_content, fly_ash_content = self.__calculate_cement_with_flyash_content(water_cement_ratio, water_content)
+        else:
+            cement_content = self.__calculate_cement_content(water_cement_ratio, water_content)
+            fly_ash_content = 0.0
         coarse_aggregate_proportion, fine_aggregate_proportion = self.__calculate_aggregate_content()
 
         volume_of_concrete=1
         volume_of_cement = self.calculate_volume_based_on_mass_and_specific_gravity(
             cement_content, self.__get_specific_gravity(Materials.CEMENT)
+        )
+        # determine fly ash volume — Materials may not include FLY_ASH; default to 1.0 only for fly ash
+        fly_ash_member = getattr(MineralAdmixture, "FLY_ASH", None)
+        if fly_ash_member is not None:
+            try:
+                fly_ash_sg = self.__get_specific_gravity(fly_ash_member)
+            except Exception:
+                fly_ash_sg = 1.0
+        else:
+            fly_ash_sg = 1.0
+
+        volume_of_fly_ash = self.calculate_volume_based_on_mass_and_specific_gravity(
+            fly_ash_content, fly_ash_sg
         )
         volume_of_water = self.calculate_volume_based_on_mass_and_specific_gravity(
             water_content, self.__get_specific_gravity(Materials.WATER)
@@ -491,8 +614,10 @@ class ConcreteMixDesign:
         volume_of_admixture = self.calculate_volume_based_on_mass_and_specific_gravity(
             self.admixture_content, self.__get_specific_gravity(Materials.ADMIXTURE)
         )
-        volume_of_all_in_aggregate=1-volume_of_cement - volume_of_water - volume_of_admixture
-
+        if fly_ash_member is not None:
+            volume_of_all_in_aggregate = 1 - volume_of_cement - volume_of_fly_ash - volume_of_water - volume_of_admixture
+        else:
+            volume_of_all_in_aggregate = 1 - volume_of_cement - volume_of_water - volume_of_admixture
         self.coarse_aggregate_content = volume_of_all_in_aggregate * coarse_aggregate_proportion \
                                     * self.__get_specific_gravity(Materials.COARSE_AGGREGATE) * 1000
         self.fine_aggregate_content = volume_of_all_in_aggregate * fine_aggregate_proportion \
@@ -525,6 +650,8 @@ class ConcreteMixDesign:
             print("-"*60)
             # volumes were calculated earlier
             print(f"{'Cement':<20} | {cement_content:15.2f} | {volume_of_cement:12.4f}")
+            if fly_ash_member is not None:
+                print(f"{'Fly Ash':<20} | {fly_ash_content:15.2f} | {volume_of_fly_ash:12.4f}")
             print(f"{'Water':<20} | {water_content:15.2f} | {volume_of_water:12.4f}")
             print(f"{'Admixture':<20} | {self.admixture_content:15.2f} | {volume_of_admixture:12.4f}")
             print(f"{'Coarse aggregate':<20} | {self.coarse_aggregate_content:15.2f} | {self.coarse_aggregate_volume:12.4f}")
@@ -556,6 +683,11 @@ class ConcreteMixDesign:
                         "mass_kg": cement_content,
                         "volume_m3": volume_of_cement,
                         "specific_gravity": self.__get_specific_gravity(Materials.CEMENT)
+                    },
+                    "fly_ash": {
+                        "mass_kg": fly_ash_content,
+                        "volume_m3": volume_of_fly_ash,
+                        "specific_gravity": fly_ash_sg
                     },
                     "water": {
                         "mass_kg": water_content,
@@ -601,4 +733,80 @@ class ConcreteMixDesign:
                 "mineral_admixture_percentage": self.mineral_admixture_percentage
             }
         }
+
+    def compute_mix_design_for_volume(self, volume_m3: float, display_result: bool = False):
+        """Compute mix quantities for a specified volume (multiples of the 1 m^3 design).
+
+        This method calls compute_mix_design() to obtain quantities per 1 m^3 and
+        scales the masses and volumes by the requested volume_m3.
+
+        Args:
+            volume_m3 (float): Target concrete volume in m^3 (must be > 0).
+            display_result (bool, optional): Whether to print a summary similar to compute_mix_design.
+        Returns:
+            dict: A dictionary containing scaled mix design parameters for the requested volume.
+        """
+        volume_m3 = float(volume_m3)
+        if volume_m3 <= 0:
+            raise ValueError("volume_m3 must be greater than zero")
+
+        # obtain base design for 1 m^3 (suppress its display to control output here)
+        base = self.compute_mix_design(display_result=False)
+
+        scale = volume_m3
+
+        base_components = base["mix_per_m3"]["components"]
+        scaled_components = {}
+
+        for name, comp in base_components.items():
+            mass = comp.get("mass_kg", 0.0) or 0.0
+            vol = comp.get("volume_m3", 0.0) or 0.0
+            # copy and scale
+            comp_scaled = dict(comp)
+            comp_scaled["mass_kg"] = mass * scale
+            comp_scaled["volume_m3"] = vol * scale
+            scaled_components[name] = comp_scaled
+
+        # scale aggregate adjustments (kg)
+        agg_adj = base.get("aggregate_adjustments_kg", {})
+        scaled_agg_adj = {k: (v * scale if isinstance(v, (int, float)) else v) for k, v in agg_adj.items()}
+
+        result = {
+            "summary": base["summary"],
+            "mix_for_volume_m3": {
+                "components": scaled_components,
+                "total_concrete_volume_m3": scale
+            },
+            "aggregate_adjustments_kg": scaled_agg_adj,
+            "provenance": base["provenance"]
+        }
+        if display_result:
+            print("\n" + "=" * 60)
+            print(f"Concrete Mix Design - Quantities for {scale:.3f} m^3")
+            print("=" * 60)
+            print("\n" + "-" * 60)
+            print("Final Mix Quantities")
+            print("-" * 60)
+            print(f"{'Component':<20} | {'Mass (kg)':>15} | {'Volume (m^3)':>12}")
+            print("-" * 60)
+            for comp_name in ("cement", "fly_ash", "water", "admixture", "coarse_aggregate", "fine_aggregate"):
+                comp = scaled_components.get(comp_name)
+                if comp is None:
+                    continue
+                print(f"{comp_name.replace('_', ' ').title():<20} | {comp['mass_kg']:15.2f} | {comp['volume_m3']:12.4f}")
+            print("-" * 60)
+            free_water = scaled_agg_adj.get("free_water_after_correction")
+            if free_water is not None:
+                vol_free_water = free_water / self.__get_specific_gravity(Materials.WATER) / 1000.0
+                print(f"After absorption and surface moisture adjustments, free water available: "
+                      f"{free_water:.2f} kg ({vol_free_water:.4f} m^3) for {scale:.3f} m^3")
+            print(f"Coarse aggregate absorbed water : {scaled_agg_adj.get('coarse_absorbed_water', 0.0):.2f} kg")
+            print(f"Fine   aggregate absorbed water : {scaled_agg_adj.get('fine_absorbed_water', 0.0):.2f} kg")
+            print(f"Coarse aggregate surface moisture: {scaled_agg_adj.get('coarse_surface_moisture', 0.0):.2f} kg")
+            print(f"Fine   aggregate surface moisture: {scaled_agg_adj.get('fine_surface_moisture', 0.0):.2f} kg")
+            print("-" * 60)
+
+        return result
+
+    
 

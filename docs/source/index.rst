@@ -9,6 +9,7 @@ A lightweight Civil Engineering Python utility package.
 
    installation
    indian_standards/index
+   usage
 
 Indices and tables
 ==================

@@ -8,7 +8,7 @@ A lightweight Civil Engineering Python utility package.
 ![Release](https://img.shields.io/badge/release-automated-blue) ![CI](https://img.shields.io/github/actions/workflow/status/amrajacivil/civilutils/release.yaml?label=CI%2FCD) ![PR Approval](https://img.shields.io/badge/PR%20Approval-required-orange) ![Code Quality](https://img.shields.io/badge/quality-high-success) 
 
 
-![GitHub tag (with filter)](https://img.shields.io/github/v/tag/amrajacivil/civilutils) ![Static Badge](https://img.shields.io/badge/coverage-95%25-blue) ![Static Badge](https://img.shields.io/badge/covered_lines_of_code-365-blue) 
+![GitHub tag (with filter)](https://img.shields.io/github/v/tag/amrajacivil/civilutils) ![Static Badge](https://img.shields.io/badge/coverage-93%25-blue) ![Static Badge](https://img.shields.io/badge/covered_lines_of_code-506-blue) 
 
 
 
